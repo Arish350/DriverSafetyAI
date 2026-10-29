@@ -27,7 +27,33 @@ st.set_page_config(
 
 st.title("🚗 Driver Safety AI")
 st.write("Real-Time Drowsiness & Yawning Detection")
+components.html("""
+<button onclick="playAlarm()"
+style="padding:15px 25px;font-size:18px;cursor:pointer;">
+🔊 Test Alarm Sound
+</button>
 
+<script>
+function playAlarm() {
+    const audio = new AudioContext();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.value = 1000;
+    gain.gain.value = 0.3;
+
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+
+    oscillator.start();
+    setTimeout(() => {
+        oscillator.stop();
+        audio.close();
+    }, 1000);
+}
+</script>
+""", height=90)
 st.warning(
     "Educational demo only. Do not rely on this app "
     "for real-world driving safety."

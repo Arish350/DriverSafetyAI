@@ -1,6 +1,5 @@
 
 import streamlit as st
-import streamlit.components.v1 as components
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -33,33 +32,6 @@ st.warning(
     "for real-world driving safety."
 )
 
-# Browser-only sound test
-components.html(
-    """
-    <button id="testAlarm"
-        style="padding:12px 20px;font-size:16px;cursor:pointer;">
-        🔊 Test Alarm Sound
-    </button>
-    <script>
-    document.getElementById("testAlarm").onclick = async () => {
-        const ctx = new AudioContext();
-        await ctx.resume();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = 1000;
-        gain.gain.value = 0.25;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        setTimeout(() => {
-            osc.stop();
-            ctx.close();
-        }, 1000);
-    };
-    </script>
-    """,
-    height=65,
-)
 
 alarm_event = threading.Event()
 MODEL_PATH = "drowsiness_model.pkl"

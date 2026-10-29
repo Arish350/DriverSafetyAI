@@ -265,10 +265,10 @@ class AlarmAudioProcessor(AudioProcessorBase):
     def recv(self, frame):
         sample_rate = frame.sample_rate or 48000
         samples = frame.samples
-        layout_name = frame.layout.name
         channels = len(frame.layout.channels)
+        layout_name = frame.layout.name
 
-        # Silence unless a warning is active
+        # Planar audio: (channels, samples)
         audio = np.zeros(
             (channels, samples),
             dtype=np.int16,
@@ -276,27 +276,27 @@ class AlarmAudioProcessor(AudioProcessorBase):
 
         if alarm_event.is_set():
             positions = (
-                np.arange(samples) + self.sample_index
+                np.arange(samples, dtype=np.float64)
+                + self.sample_index
             ) / sample_rate
 
-            # 1000 Hz beep, pulsing on/off
+            # Repeating alarm beep
             pulse_on = (positions % 0.8) < 0.3
 
             tone = (
-                np.sin(2 * np.pi * 1000 * positions)
-                * 0.25
+                0.25
                 * 32767
+                * np.sin(2 * np.pi * 1000 * positions)
                 * pulse_on
             ).astype(np.int16)
 
-            for channel in range(channels):
-                audio[channel, :] = tone
+            audio[:] = tone[np.newaxis, :]
 
         self.sample_index += samples
 
         output = av.AudioFrame.from_ndarray(
             audio,
-            format="s16",
+            format="s16p",
             layout=layout_name,
         )
 
@@ -305,7 +305,6 @@ class AlarmAudioProcessor(AudioProcessorBase):
         output.time_base = frame.time_base
 
         return output
-
 
 # --------------------------------------------------
 # START CAMERA AND AUDIO

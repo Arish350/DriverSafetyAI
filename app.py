@@ -27,46 +27,46 @@ st.set_page_config(
 
 st.title("🚗 Driver Safety AI")
 st.write("Real-Time Drowsiness & Yawning Detection")
-components.html("""
-<button onclick="playAlarm()"
-style="padding:15px 25px;font-size:18px;cursor:pointer;">
-🔊 Test Alarm Sound
-</button>
 
-<script>
-function playAlarm() {
-    const audio = new AudioContext();
-    const oscillator = audio.createOscillator();
-    const gain = audio.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.value = 1000;
-    gain.gain.value = 0.3;
-
-    oscillator.connect(gain);
-    gain.connect(audio.destination);
-
-    oscillator.start();
-    setTimeout(() => {
-        oscillator.stop();
-        audio.close();
-    }, 1000);
-}
-</script>
-""", height=90)
 st.warning(
     "Educational demo only. Do not rely on this app "
     "for real-world driving safety."
 )
 
-# Shared signal between video detection and alarm audio
-alarm_event = threading.Event()
+# Browser-only sound test
+components.html(
+    """
+    <button id="testAlarm"
+        style="padding:12px 20px;font-size:16px;cursor:pointer;">
+        🔊 Test Alarm Sound
+    </button>
+    <script>
+    document.getElementById("testAlarm").onclick = async () => {
+        const ctx = new AudioContext();
+        await ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 1000;
+        gain.gain.value = 0.25;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        setTimeout(() => {
+            osc.stop();
+            ctx.close();
+        }, 1000);
+    };
+    </script>
+    """,
+    height=65,
+)
 
+alarm_event = threading.Event()
 MODEL_PATH = "drowsiness_model.pkl"
 
 
 # --------------------------------------------------
-# LOAD AI MODEL
+# LOAD MODEL
 # --------------------------------------------------
 
 @st.cache_resource
@@ -94,7 +94,6 @@ class DriverProcessor(VideoProcessorBase):
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
-
         self.eye_closed_since = None
         self.yawn_since = None
         self.ear = 0.0
@@ -103,23 +102,16 @@ class DriverProcessor(VideoProcessorBase):
 
     def eye_aspect_ratio(self, points):
         p = np.array(points, dtype=np.float32)
-
         vertical1 = np.linalg.norm(p[1] - p[5])
         vertical2 = np.linalg.norm(p[2] - p[4])
         horizontal = np.linalg.norm(p[0] - p[3])
-
-        return (
-            (vertical1 + vertical2)
-            / (2 * horizontal + 1e-6)
-        )
+        return (vertical1 + vertical2) / (2 * horizontal + 1e-6)
 
     def recv(self, frame):
         image = frame.to_ndarray(format="bgr24")
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         result = self.face_mesh.process(rgb)
         now = time.time()
-
         warning_active = False
 
         if result.multi_face_landmarks:
@@ -127,22 +119,16 @@ class DriverProcessor(VideoProcessorBase):
             h, w = image.shape[:2]
 
             def point(index):
-                return (
-                    int(face[index].x * w),
-                    int(face[index].y * h),
-                )
+                return (int(face[index].x * w),
+                        int(face[index].y * h))
 
             left_eye = [33, 160, 158, 133, 153, 144]
             right_eye = [362, 385, 387, 263, 373, 380]
 
-            left_ear = self.eye_aspect_ratio(
-                [point(i) for i in left_eye]
-            )
-            right_ear = self.eye_aspect_ratio(
-                [point(i) for i in right_eye]
-            )
-
-            self.ear = (left_ear + right_ear) / 2
+            self.ear = (
+                self.eye_aspect_ratio([point(i) for i in left_eye])
+                + self.eye_aspect_ratio([point(i) for i in right_eye])
+            ) / 2
 
             upper_lip = np.array(point(13))
             lower_lip = np.array(point(14))
@@ -151,17 +137,14 @@ class DriverProcessor(VideoProcessorBase):
 
             vertical = np.linalg.norm(upper_lip - lower_lip)
             horizontal = np.linalg.norm(left_mouth - right_mouth)
-
             self.mouth_ratio = vertical / (horizontal + 1e-6)
 
-            # Eye closure timer
             if self.ear < 0.22:
                 if self.eye_closed_since is None:
                     self.eye_closed_since = now
             else:
                 self.eye_closed_since = None
 
-            # Yawning timer
             if self.mouth_ratio > 0.35:
                 if self.yawn_since is None:
                     self.yawn_since = now
@@ -172,25 +155,20 @@ class DriverProcessor(VideoProcessorBase):
                 self.eye_closed_since is not None
                 and now - self.eye_closed_since >= 1.5
             )
-
             yawning = (
                 self.yawn_since is not None
                 and now - self.yawn_since >= 1.0
             )
 
-            # AI prediction (informational only)
             try:
-                features = np.array([[
-                    self.ear,
-                    self.mouth_ratio,
-                ]])
                 prediction = str(
-                    model.predict(features)[0]
+                    model.predict(
+                        np.array([[self.ear, self.mouth_ratio]])
+                    )[0]
                 )
             except Exception:
                 prediction = "Unknown"
 
-            # Actual alarm is based on threshold detections
             warning_active = drowsy or yawning
 
             if drowsy:
@@ -200,40 +178,19 @@ class DriverProcessor(VideoProcessorBase):
             else:
                 self.status = f"Alert | AI: {prediction}"
 
-            color = (
-                (0, 0, 255)
-                if warning_active
-                else (0, 200, 0)
-            )
+            color = (0, 0, 255) if warning_active else (0, 200, 0)
 
             cv2.putText(
-                image,
-                self.status,
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                color,
-                2,
+                image, self.status, (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2
             )
-
             cv2.putText(
-                image,
-                f"EAR: {self.ear:.2f}",
-                (20, 75),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 0),
-                2,
+                image, f"EAR: {self.ear:.2f}", (20, 75),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2
             )
-
             cv2.putText(
-                image,
-                f"Mouth ratio: {self.mouth_ratio:.2f}",
-                (20, 105),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 0),
-                2,
+                image, f"Mouth ratio: {self.mouth_ratio:.2f}", (20, 105),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2
             )
 
         else:
@@ -241,16 +198,12 @@ class DriverProcessor(VideoProcessorBase):
             self.eye_closed_since = None
             self.yawn_since = None
 
-        # Share warning with audio processor
         if warning_active:
             alarm_event.set()
         else:
             alarm_event.clear()
 
-        return av.VideoFrame.from_ndarray(
-            image,
-            format="bgr24",
-        )
+        return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 
 # --------------------------------------------------
@@ -266,54 +219,53 @@ class AlarmAudioProcessor(AudioProcessorBase):
         sample_rate = frame.sample_rate or 48000
         samples = frame.samples
         channels = len(frame.layout.channels)
-        layout_name = frame.layout.name
 
-        # Planar audio: (channels, samples)
-        audio = np.zeros(
-            (channels, samples),
-            dtype=np.int16,
-        )
+        positions = (
+            np.arange(samples, dtype=np.float64)
+            + self.sample_index
+        ) / sample_rate
 
         if alarm_event.is_set():
-            positions = (
-                np.arange(samples, dtype=np.float64)
-                + self.sample_index
-            ) / sample_rate
-
-            # Repeating alarm beep
-            pulse_on = (positions % 0.8) < 0.3
-
+            pulse = (positions % 0.8) < 0.3
             tone = (
-                0.25
-                * 32767
+                0.25 * 32767
                 * np.sin(2 * np.pi * 1000 * positions)
-                * pulse_on
+                * pulse
             ).astype(np.int16)
+        else:
+            tone = np.zeros(samples, dtype=np.int16)
 
-            audio[:] = tone[np.newaxis, :]
+        # Match PyAV's expected array shape for the output format.
+        if frame.format.is_planar:
+            audio = np.tile(tone, (channels, 1))
+            output_format = "s16p"
+        else:
+            interleaved = np.repeat(tone[:, None], channels, axis=1)
+            audio = interleaved.reshape(1, samples * channels)
+            output_format = "s16"
 
         self.sample_index += samples
 
         output = av.AudioFrame.from_ndarray(
             audio,
-            format="s16p",
-            layout=layout_name,
+            format=output_format,
+            layout=frame.layout.name,
         )
-
         output.sample_rate = sample_rate
         output.pts = frame.pts
         output.time_base = frame.time_base
 
         return output
 
+
 # --------------------------------------------------
-# START CAMERA AND AUDIO
+# START CAMERA + AUDIO
 # --------------------------------------------------
 
 st.info(
-    "Click START and allow camera and microphone permissions. "
-    "The microphone stream is used to carry the generated alarm "
-    "audio back to your browser."
+    "Press START and allow camera and microphone access. "
+    "The microphone audio stream carries the generated alarm "
+    "back to the browser."
 )
 
 ctx = webrtc_streamer(
@@ -329,11 +281,10 @@ ctx = webrtc_streamer(
 )
 
 st.caption(
-    "Alarm sound is generated when eye-closure or yawning "
-    "thresholds trigger. It may take a moment to start."
+    "The alarm triggers when the eye-closure or yawning "
+    "threshold is reached."
 )
-
 st.caption(
-    "Detection can be inaccurate. This is not a certified "
-    "driver-monitoring or vehicle safety system."
+    "This prototype is not a certified driver-monitoring "
+    "or vehicle safety system."
 )
